@@ -490,6 +490,7 @@ def sync_export():
         "products": db.list_docs("products"),
         "receipts": db.list_docs("receipts"),
         "shoppingList": db.kv_get("shopping_list", []),
+        "geminiKey": db.kv_get("gemini_key") or "",
     }
     files = {}
     for fname in _collect_upload_refs(payload):
@@ -523,6 +524,8 @@ def sync_import(data: dict):
         db.kv_set("categories", data["categories"])
     if isinstance(data.get("categoryImages"), dict):
         db.kv_set("category_images", data["categoryImages"])
+    if data.get("geminiKey") and not db.kv_get("gemini_key"):
+        db.kv_set("gemini_key", data["geminiKey"])
     return {"ok": True}
 
 

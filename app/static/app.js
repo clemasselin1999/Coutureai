@@ -112,23 +112,58 @@ async function loadAll() {
 }
 const reloadPatterns = async () => { S.patterns = await api("/api/patterns"); };
 
+function installHelpBox() {
+  const ua = navigator.userAgent;
+  const ios = /iphone|ipad|ipod/i.test(ua), android = /android/i.test(ua), mac = /macintosh/i.test(ua);
+  const safari = /safari/i.test(ua) && !/chrome|crios|edg/i.test(ua);
+  let steps = "";
+  if (ios) {
+    steps = `<ol style="margin-left:18px;line-height:1.8">
+      <li>En bas de l'écran de Safari, touchez le bouton <b>Partager ⬆️</b> (le carré avec une flèche vers le haut)</li>
+      <li>Faites défiler et touchez <b>« Sur l'écran d'accueil »</b></li>
+      <li>Touchez <b>« Ajouter »</b> en haut à droite</li>
+    </ol>`;
+  } else if (mac && safari) {
+    steps = `<ol style="margin-left:18px;line-height:1.8">
+      <li>Tout en haut à gauche de l'écran de votre Mac (dans la barre de menu Safari), cliquez sur <b>Fichier</b></li>
+      <li>Cliquez sur <b>« Ajouter au Dock… »</b> puis sur <b>Ajouter</b></li>
+      <li><i>(Ou cliquez sur le bouton <b>Partager ⬆️</b> en haut à droite de Safari › <b>Ajouter au Dock</b>)</i></li>
+    </ol>`;
+  } else if (android) {
+    steps = `<ol style="margin-left:18px;line-height:1.8">
+      <li>Appuyez sur les <b>3 petits points ⋮</b> tout en haut à droite de Chrome</li>
+      <li>Appuyez sur <b>« Ajouter à l'écran d'accueil »</b> ou <b>« Installer l'application »</b></li>
+    </ol>`;
+  } else {
+    steps = `<ol style="margin-left:18px;line-height:1.8">
+      <li>Regardez tout à droite dans la <b>barre d'adresse</b> en haut de votre navigateur : cliquez sur la petite icône d'écran avec une flèche <b>📥 (Installer CoutureIA)</b></li>
+      <li><b>Ou</b> cliquez sur le menu <b>⋮</b> (les 3 points tout en haut à droite) › <b>« Cast, enregistrer et partager »</b> (ou <i>Applications</i>) › <b>« Installer la page en tant qu'application… »</b></li>
+    </ol>`;
+  }
+  return `<div class="card pad stack" style="margin-bottom:14px;background:var(--rose-50);border-color:var(--rose-200);color:var(--s800)">
+    <div class="row between">
+      <b style="color:#be123c;font-size:16px">📲 Comment installer CoutureIA en 2 clics sur cet appareil :</b>
+      <button class="icon-btn" data-act="closeinstallhelp">${ico("x")}</button>
+    </div>
+    ${steps}
+  </div>`;
+}
+
 function installBanner() {
   const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
   if (standalone || S.hideInstallBanner) return "";
   const ua = navigator.userAgent;
   const ios = /iphone|ipad|ipod/i.test(ua), android = /android/i.test(ua);
-  if (S.installEvt) {
-    return `<div class="card pad row between wrap" style="margin-bottom:14px;background:var(--rose);color:#fff;border-color:var(--rose)">
-      <div><b>📲 Installer CoutureIA sur cet appareil</b><div class="small" style="opacity:.9">Accès direct en plein écran depuis votre écran d'accueil</div></div>
-      <div class="row"><button class="btn" style="background:#fff;color:var(--rose);font-weight:700;border:0" data-act="install">Installer l'application</button>
-      <button class="icon-btn" style="color:#fff" data-act="hidebanner">${ico("x")}</button></div></div>`;
-  }
   if ((android || ios) && location.protocol === "http:" && S.cfg.httpsUrl) {
     return `<div class="card pad row between wrap" style="margin-bottom:14px;background:var(--rose);color:#fff;border-color:var(--rose)">
       <div><b>📲 Pour installer l'application en 1 clic</b><div class="small" style="opacity:.9">Passez sur le lien sécurisé HTTPS</div></div>
       <a class="btn" style="background:#fff;color:var(--rose);font-weight:700;border:0" href="${esc(S.cfg.httpsUrl)}">Passer en HTTPS & Installer →</a></div>`;
   }
-  return "";
+  return `<div class="card pad row between wrap" style="margin-bottom:14px;background:var(--rose);color:#fff;border-color:var(--rose)">
+    <div><b>📲 Installer CoutureIA sur cet appareil</b><div class="small" style="opacity:.9">Accès direct en plein écran depuis votre écran d'accueil ou bureau</div></div>
+    <div class="row"><button class="btn" style="background:#fff;color:var(--rose);font-weight:700;border:0" data-act="install">Installer l'application</button>
+    <button class="icon-btn" style="color:#fff" data-act="hidebanner">${ico("x")}</button></div></div>
+    ${S.showInstallHelp ? installHelpBox() : ""}`;
 }
 
 // ---------- rendu ----------
@@ -449,8 +484,19 @@ const A = {
     } finally { a.busy = false; render(); }
   }),
   // réglages
-  install: async () => { if (!S.installEvt) return; S.installEvt.prompt(); await S.installEvt.userChoice; S.installEvt = null; render(); },
-  hidebanner: () => { S.hideInstallBanner = true; render(); },
+  install: async () => {
+    if (S.installEvt) {
+      S.installEvt.prompt();
+      await S.installEvt.userChoice;
+      S.installEvt = null;
+      render();
+    } else {
+      S.showInstallHelp = !S.showInstallHelp;
+      render();
+    }
+  },
+  closeinstallhelp: () => { S.showInstallHelp = false; render(); },
+  hidebanner: () => { S.hideInstallBanner = true; S.showInstallHelp = false; render(); },
   savekey: guard(async () => { const k = document.getElementById("gkey").value; await api("/api/settings", { method: "PUT", json: { geminiKey: k } }); S.cfg.hasApiKey = true; toast("Clé enregistrée ✓"); render(); }),
   pickrestore: () => document.getElementById("restorefile").click(),
 };

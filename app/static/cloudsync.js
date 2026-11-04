@@ -68,6 +68,16 @@ async function syncPushNow(silent = false) {
   if (!silent) { sy.busy = true; sy.msg = ""; render(); }
   try {
     const payload = await api("/api/sync/export");
+    const isEmptyLocal = !(payload.patterns?.length) && !(payload.profiles?.length) && !(payload.receipts?.length);
+    if (silent && isEmptyLocal) {
+      // Sécurité anti-écrasement : si le serveur vient de redémarrer à vide (ex: mise à jour Render), on récupère Firebase au lieu d'écraser
+      const snap = await db.ref(`budgets/${key}`).once("value");
+      const existing = snap.val();
+      if (existing && ((existing.patterns?.length) || (existing.profiles?.length) || (existing.receipts?.length))) {
+        await syncApplyIncoming(existing, true);
+        return;
+      }
+    }
     const cleanPayload = JSON.parse(JSON.stringify(payload));
     const ts = Date.now();
     sy._lastTimestamp = ts;
