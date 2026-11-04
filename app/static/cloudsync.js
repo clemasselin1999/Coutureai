@@ -148,6 +148,12 @@ async function syncPullNow(silent = false) {
       else await syncPushNow(true); // Premier appareil avec ce pseudo : initialise le Cloud
       return;
     }
+    if (silent && !(cloudData.patterns?.length) && S.patterns?.length > 0) {
+      // La base locale contient des patrons (ex: backup tout juste importé) alors que le Cloud est vide : on pousse vers le Cloud
+      sy._initialized = true;
+      await syncPushNow(true);
+      return;
+    }
     await syncApplyIncoming(cloudData, silent);
     sy._initialized = true;
   } catch (e) {

@@ -171,19 +171,55 @@ def delete_pattern(pid: str):
 # --- tableau des tailles & métrage tissu au dos du patron -------------------
 import re as _re
 
-_MEASURE_CODES = ("P", "T", "H", "E", "C", "B", "CU", "LD", "LB", "LV", "EJ")
+_MEASURE_CODES = ("HT", "P", "T", "H", "E", "C", "B", "CU", "LD", "LB", "LV", "EJ", "MESURE")
 
 
 def _parse_numbers(txt: str) -> list[float]:
     return [float(x.replace(",", ".")) for x in _re.findall(r"\d+(?:[.,]\d+)?", str(txt or ""))]
 
 
+def _infer_header_code(label: str, raw_code: str) -> str:
+    l = (label or "").lower()
+    c = (raw_code or "AUTRE").strip().upper()
+    if any(w in l for w in ("tissu", "fabric", "laize", "métrage", "metrage", "doublure", "lining", "thermocol", "entoilage", "interfacing", "bord-côte", "bord cote", "ribbing", "empiècement", "empiecement", "yoke", "manches longues", "manches courtes", "long sleeves", "short sleeves")):
+        return "TISSU"
+    if any(w in l for w in ("bouton", "button", "fermeture", "zip", "élastique", "elastique", "elastic", "aiguille", "fil ", "press", "œillet", "oeillet", "biais", "ruban", "cordon")):
+        return "AUTRE"
+    if any(w in l for w in ("stature", "height", "hauteur totale", "taille corporelle")):
+        return "HT"
+    if any(w in l for w in ("poitrine", "buste", "chest", "bust")) and "hauteur" not in l:
+        return "P"
+    if any(w in l for w in ("tour de taille", "waist")) or (l.strip() in ("taille", "taille (cm)")):
+        return "T"
+    if any(w in l for w in ("hanche", "bassin", "hip")):
+        return "H"
+    if any(w in l for w in ("épaule", "epaule", "carrure", "shoulder")):
+        return "E"
+    if any(w in l for w in ("cou", "encolure", "neck")):
+        return "C"
+    if any(w in l for w in ("cuisse", "thigh")):
+        return "CU"
+    if any(w in l for w in ("entrejambe", "inseam")):
+        return "EJ"
+    if any(w in l for w in ("longueur dos", "taille dos", "hauteur buste", "back waist", "back length")):
+        return "LD"
+    if any(w in l for w in ("longueur bras", "longueur de bras", "longueur manche", "sleeve length")):
+        return "LB"
+    if any(w in l for w in ("longueur vêtement", "longueur du vêtement", "longueur finie", "longueur totale", "garment length")):
+        return "LV"
+    if any(w in l for w in ("tour de bras", "biceps", "upper arm")):
+        return "B"
+    if c in _MEASURE_CODES or c in ("TISSU", "AUTRE"):
+        return c
+    return "AUTRE"
+
+
 def _normalize_chart(raw: dict, image_uri: str | None = None) -> dict:
     headers = []
     for h in raw.get("headers") or []:
         lbl = str(h.get("label") or "").strip()
-        code = str(h.get("code") or "AUTRE").strip().upper()
         if lbl:
+            code = _infer_header_code(lbl, h.get("code") or "")
             headers.append({"label": lbl, "code": code})
     if not headers:
         headers = [
@@ -202,23 +238,27 @@ def _normalize_chart(raw: dict, image_uri: str | None = None) -> dict:
             vals.append("")
         row: dict = {"taille": t, "values": vals[:len(headers)]}
         tissu_parts, extra_parts = [], []
-        for h, v in zip(headers, row["values"]):
+        for idx, (h, v) in enumerate(zip(headers, row["values"])):
             if not v:
                 continue
             code = h["code"]
             nums = _parse_numbers(v)
             if code in _MEASURE_CODES and nums:
-                lo, hi = nums[0], nums[1] if len(nums) > 1 else nums[0]
-                # Si la mesure est en mètres (ex: "1,10 m" pour longueur), convertir en cm
+                key = f"M_{idx}" if code == "MESURE" else code
+                # Détecte si le 2e nombre est une vraie fourchette (ex: 86 / 90 cm) ou une traduction en inches (ex: 86 cm / 34")
+                if len(nums) > 1 and nums[0] <= nums[1] <= nums[0] * 1.35:
+                    lo, hi = nums[0], nums[1]
+                else:
+                    lo = hi = nums[0]
                 if "m" in v.lower() and "cm" not in v.lower() and "mm" not in v.lower() and hi < 5:
                     lo, hi = round(lo * 100, 1), round(hi * 100, 1)
-                row[code] = round((lo + hi) / 2, 1)
-                row[f"{code}_min"] = round(lo, 1)
-                row[f"{code}_max"] = round(hi, 1)
-                row[f"{code}_txt"] = v
+                row[key] = round((lo + hi) / 2, 1)
+                row[f"{key}_min"] = round(lo, 1)
+                row[f"{key}_max"] = round(hi, 1)
+                row[f"{key}_txt"] = v
             elif code == "TISSU":
                 tissu_parts.append(f"{h['label']} : {v}")
-                if nums:
+                if nums and "tissu_m" not in row:
                     val_m = nums[0] / 100.0 if "cm" in v.lower() or nums[0] > 15 else nums[0]
                     row["tissu_m"] = round(val_m, 2)
             else:
@@ -429,19 +469,44 @@ def backup():
                     headers={"Content-Disposition": f'attachment; filename="coutureia-{stamp}.zip"'})
 
 
+def _data_uri_to_upload(uri: str | None) -> str | None:
+    if not uri or not isinstance(uri, str) or not uri.startswith("data:"):
+        return uri
+    try:
+        header, b64 = uri.split(",", 1)
+        ext = ".png" if "image/png" in header else ".pdf" if "application/pdf" in header else ".jpg"
+        raw = _b64.b64decode(b64)
+        import hashlib
+        name = f"{hashlib.md5(raw).hexdigest()}{ext}"
+        (UPLOAD_DIR / name).write_bytes(raw)
+        return f"/uploads/{name}"
+    except Exception:
+        return uri
+
+
 @app.post("/api/restore")
 def restore(file: UploadFile = File(...)):
+    raw_bytes = file.file.read()
     try:
-        z = zipfile.ZipFile(io.BytesIO(file.file.read()))
-        data = json.loads(z.read("data.json"))
+        if raw_bytes[:2] == b"PK":
+            z = zipfile.ZipFile(io.BytesIO(raw_bytes))
+            data = json.loads(z.read("data.json"))
+            for n in z.namelist():
+                if n.startswith("uploads/") and not n.endswith("/"):
+                    (UPLOAD_DIR / Path(n).name).write_bytes(z.read(n))
+        else:
+            data = json.loads(raw_bytes.decode("utf-8"))
     except Exception:
-        raise HTTPException(400, "Fichier de sauvegarde invalide")
-    for n in z.namelist():
-        if n.startswith("uploads/") and not n.endswith("/"):
-            (UPLOAD_DIR / Path(n).name).write_bytes(z.read(n))
+        raise HTTPException(400, "Fichier de sauvegarde invalide (.zip ou .json attendu)")
     for p in data.get("patterns", []):
+        if p.get("imageUri"):
+            p["imageUri"] = _data_uri_to_upload(p["imageUri"])
+        for r in p.get("resources") or []:
+            if r.get("type") in ("image", "pdf") and r.get("content"):
+                r["content"] = _data_uri_to_upload(r["content"])
         db.save_doc("patterns", p)
     for p in data.get("profiles", []):
+        p.setdefault("createdAt", int(time.time() * 1000))
         db.save_doc("profiles", p)
     for table in ("enseignes", "products", "receipts"):
         for d in data.get(table, []):
@@ -451,7 +516,8 @@ def restore(file: UploadFile = File(...)):
     if data.get("categories"):
         db.kv_set("categories", data["categories"])
     if data.get("categoryImages"):
-        db.kv_set("category_images", data["categoryImages"])
+        cat_imgs = {k: _data_uri_to_upload(v) for k, v in data["categoryImages"].items() if v}
+        db.kv_set("category_images", cat_imgs)
     return {"ok": True}
 
 

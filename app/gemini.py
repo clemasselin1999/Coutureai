@@ -167,19 +167,21 @@ Recopie FIDÈLEMENT le tableau visible sur l'image :
    Pour chaque intitulé, indique :
    - `label` : le nom exact écrit sur l'image (ex: "Tour de Poitrine", "Tour de Taille", "Quantité tissu", "Taille fermeture").
    - `code` : le code standard correspondant parmi :
-     * "P" = Tour de poitrine / buste
-     * "T" = Tour de taille
-     * "H" = Tour de hanches / bassin
-     * "E" = Largeur épaules / carrure
-     * "C" = Tour de cou / encolure
+     * "HT" = Stature / Hauteur totale du corps (ex: "Stature", "Height", "Hauteur totale")
+     * "P" = Tour de poitrine / buste (Chest / Bust)
+     * "T" = Tour de taille (Waist)
+     * "H" = Tour de hanches / bassin (Hips)
+     * "E" = Largeur épaules / carrure (Shoulder)
+     * "C" = Tour de cou / encolure (Neck)
      * "B" = Tour de bras / biceps
-     * "CU" = Tour de cuisse
-     * "LD" = Longueur taille dos / hauteur buste
-     * "LB" = Longueur de bras / manche
-     * "LV" = Longueur du vêtement
-     * "EJ" = Longueur d'entrejambe
-     * "TISSU" = Quantité / métrage de tissu
-     * "AUTRE" = Autre fourniture ou info (ex: Taille fermeture, boutons, élastique...)
+     * "CU" = Tour de cuisse (Thigh)
+     * "LD" = Longueur taille dos / hauteur buste (Back waist length)
+     * "LB" = Longueur de bras / manche (Sleeve length)
+     * "LV" = Longueur du vêtement (Garment length)
+     * "EJ" = Longueur d'entrejambe (Inseam)
+     * "MESURE" = Autre mesure en cm du corps ou du vêtement (ex: Tour de tête, Tour de poignet, Hauteur fourche...)
+     * "TISSU" = Quantité / métrage de tissu (ex: Tissu principal, Fabric, Manches longues/courtes en tissu, Empiècement, Doublure, Bord-côte...)
+     * "AUTRE" = Autre fourniture (ex: Taille fermeture, boutons, élastique, aiguilles...)
 2. `sizes` : une entrée par colonne/taille du tableau (ex: "S", "M / L", "XL" ou "36", "38", "40").
    - `taille` : le nom de la taille (sans le mot "Taille" devant si possible, ex: "S", "M / L", "XL", "38").
    - `values` : liste des valeurs pour chaque ligne de `headers` (dans le même ordre), recopiées EXACTEMENT comme sur l'image (ex: "86 / 90 cm", "90 cm", "1 m", "60 cm").

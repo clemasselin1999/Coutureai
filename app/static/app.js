@@ -415,7 +415,7 @@ function settingsView() {
       <p class="muted small">${S.patterns.length} patrons • ${S.profiles.length} profils. Le fichier contient aussi toutes les images et PDF.</p>
       <div class="row wrap"><a class="btn primary" href="/api/backup" download>${ico("dl", "ico")} Télécharger la sauvegarde</a>
       <button class="btn" data-act="pickrestore">${ico("upload", "ico")} Restaurer</button></div>
-      <input type="file" id="restorefile" accept=".zip" class="hidden" data-file="restore"></div></div>`;
+      <input type="file" id="restorefile" accept=".zip,.json" class="hidden" data-file="restore"></div></div>`;
 }
 
 // ---------- actions ----------
