@@ -1,9 +1,13 @@
 // Service worker : coque de l'app en cache (démarrage rapide, hors-ligne pour l'interface).
-const CACHE = "coutureia-v14";
+const CACHE = "coutureia-v15";
 const SHELL = ["/", "/static/style.css", "/static/app.js", "/static/merceries.js", "/static/grading.js", "/static/cloudsync.js", "/static/manifest.webmanifest", "/static/icons/icon-192.png", "/static/icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
+  e.waitUntil(
+    caches.open(CACHE).then((c) =>
+      Promise.all(SHELL.map((u) => fetch(u, { cache: "no-store" }).then((r) => c.put(u, r))))
+    )
+  );
   self.skipWaiting();
 });
 
@@ -18,9 +22,9 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   const url = new URL(req.url);
   if (req.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/api")) return;
-  // Réseau d'abord, repli sur le cache
+  // Réseau d'abord sans cache disque navigateur, repli sur le cache hors-ligne
   e.respondWith(
-    fetch(req)
+    fetch(req, { cache: "no-store" })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(req, copy));

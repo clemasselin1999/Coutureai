@@ -21,7 +21,7 @@ merceries.seed_if_needed()
 app.include_router(merceries.router)
 
 
-# --- protection optionnelle par code ---------------------------------------
+# --- protection optionnelle par code + anti-cache JS/CSS -------------------
 @app.middleware("http")
 async def check_code(request: Request, call_next):
     path = request.url.path
@@ -29,7 +29,10 @@ async def check_code(request: Request, call_next):
     if ACCESS_CODE and protected and path != "/api/login":
         if request.cookies.get("code") != ACCESS_CODE:
             return JSONResponse({"detail": "Code requis"}, status_code=401)
-    return await call_next(request)
+    resp = await call_next(request)
+    if path == "/" or path == "/sw.js" or path.startswith("/static/"):
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 
 @app.post("/api/login")
