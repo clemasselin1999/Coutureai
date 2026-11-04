@@ -1,0 +1,217 @@
+{
+  "merceries": [
+    {
+      "id": "sudocoud_annecy",
+      "nom": "Sudocoud",
+      "secteur": "Annecy",
+      "adresse": "7 Avenue de Bouvard, 74000 Annecy",
+      "site_web": "https://www.sudocoud.fr",
+      "specificite": "Mercerie, tissus et machines. Vente au décimètre très économique."
+    },
+    {
+      "id": "quartier_tissus_epagny",
+      "nom": "Quartier des Tissus (Tissavoie)",
+      "secteur": "Epagny Metz-Tessy",
+      "adresse": "107 Rue de la Mandallaz, 74330 Epagny Metz-Tessy",
+      "site_web": "https://www.quartierdestissus.com",
+      "specificite": "Grande surface de tissus, large choix de mercerie et élastiques."
+    },
+    {
+      "id": "mondial_tissus_sillingy",
+      "nom": "Mondial Tissus",
+      "secteur": "Sillingy",
+      "adresse": "130 Route des Bromines, 74330 Sillingy",
+      "site_web": "https://www.mondialtissus.fr",
+      "specificite": "Enseigne nationale, programmes de fidélité avantageux."
+    },
+    {
+      "id": "mondial_tissus_sallanches",
+      "nom": "Mondial Tissus",
+      "secteur": "Sallanches",
+      "adresse": "2018 Avenue de Genève, 74700 Sallanches",
+      "site_web": "https://www.mondialtissus.fr",
+      "specificite": "Grand choix de tissus d'ameublement et habillement."
+    },
+    {
+      "id": "mlc_annecy",
+      "nom": "MLC (Mercerie Loisirs Créatifs)",
+      "secteur": "Annecy",
+      "adresse": "4 Passage des Bains, 74000 Annecy",
+      "site_web": "Site vitrine",
+      "specificite": "Mercerie traditionnelle de centre-ville, boutons et retouches."
+    },
+    {
+      "id": "cote_laine_annecy",
+      "nom": "Côté Laine",
+      "secteur": "Annecy",
+      "adresse": "32 Rue Vaugelas, 74000 Annecy",
+      "site_web": "Page Facebook",
+      "specificite": "Spécialiste laines, fils et petite mercerie de finition."
+    },
+    {
+      "id": "singer_annecy",
+      "nom": "Singer Annecy",
+      "secteur": "Annecy",
+      "adresse": "35 Avenue de Cran, 74000 Annecy",
+      "site_web": "Site officiel",
+      "specificite": "Consommables machines, aiguilles, canettes, pièces techniques."
+    },
+    {
+      "id": "tissus_ursules_thoiry",
+      "nom": "Tissus des Ursules",
+      "secteur": "Thoiry",
+      "adresse": "114 Rue Pré de Fontaine, 01710 Thoiry",
+      "site_web": "https://www.tissusdesursules.fr",
+      "specificite": "Magasin de tissus proche Pays de Gex."
+    },
+    {
+      "id": "patch_passion_thonon",
+      "nom": "Patch Passion",
+      "secteur": "Thonon-les-Bains",
+      "adresse": "2 Avenue des Allobroges, 74200 Thonon-les-Bains",
+      "site_web": "Non renseigné",
+      "specificite": "Vente de tissus au poids."
+    }
+  ],
+  "categories_mercerie": [
+    {
+      "produit": "Élastique standard / maille (5-20 mm)",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 0.60, "max": 0.80},
+        "Quartier des Tissus": {"min": 0.30, "max": 0.70},
+        "Mondial Tissus": {"min": 0.99, "max": 2.39},
+        "MLC Annecy": {"min": 1.50, "max": 2.70}
+      }
+    },
+    {
+      "produit": "Élastique large (30-40 mm)",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 1.10, "max": 2.10},
+        "Quartier des Tissus": {"min": 1.85, "max": 2.60},
+        "Mondial Tissus": {"min": 2.39, "max": 2.39}
+      }
+    },
+    {
+      "produit": "Élastique fantaisie / lurex",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 3.90, "max": 3.90},
+        "Mondial Tissus": {"min": 3.59, "max": 4.79},
+        "MLC Annecy": {"min": 4.50, "max": 4.50}
+      }
+    },
+    {
+      "produit": "Biais replié uni (20 mm)",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 0.50, "max": 0.50},
+        "Quartier des Tissus": {"min": 0.70, "max": 0.70},
+        "Mondial Tissus": {"min": 1.99, "max": 1.99}
+      }
+    },
+    {
+      "produit": "Passepoil",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 1.00, "max": 1.00},
+        "Quartier des Tissus": {"min": 0.60, "max": 0.60},
+        "Mondial Tissus": {"min": 1.59, "max": 1.99}
+      }
+    },
+    {
+      "produit": "Sangle (25-30 mm)",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 2.00, "max": 3.10},
+        "Mondial Tissus": {"min": 4.49, "max": 4.49}
+      }
+    },
+    {
+      "produit": "Bobine de fil poly 200m",
+      "unite": "unité",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 3.90, "max": 3.90},
+        "Quartier des Tissus": {"min": 4.60, "max": 4.60},
+        "Mondial Tissus": {"min": 3.79, "max": 4.19}
+      }
+    },
+    {
+      "produit": "Cône de surjeteuse (2743m)",
+      "unite": "unité",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 4.00, "max": 4.00}
+      }
+    }
+  ],
+  "categories_tissus": [
+    {
+      "produit": "Popeline / Cretonne / Coton uni",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 8.90, "max": 9.00},
+        "Quartier des Tissus": {"min": 6.90, "max": 8.90},
+        "Mondial Tissus": {"min": 7.99, "max": 14.99}
+      }
+    },
+    {
+      "produit": "Liberty (Tana Lawn)",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Mondial Tissus": {"min": 28.90, "max": 28.90}
+      }
+    },
+    {
+      "produit": "Viscose / Twill / Crêpe",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 11.00, "max": 12.90},
+        "Mondial Tissus": {"min": 11.99, "max": 19.99}
+      }
+    },
+    {
+      "produit": "Jersey de coton",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 12.90, "max": 18.90},
+        "Mondial Tissus": {"min": 9.99, "max": 15.99}
+      }
+    },
+    {
+      "produit": "Sweat / Molleton / Jogging",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 13.90, "max": 19.90},
+        "Quartier des Tissus": {"min": 14.99, "max": 14.99},
+        "Mondial Tissus": {"min": 14.99, "max": 16.99}
+      }
+    },
+    {
+      "produit": "Bord-côte (tubulaire)",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 9.90, "max": 12.90},
+        "Mondial Tissus": {"min": 14.99, "max": 19.99}
+      }
+    },
+    {
+      "produit": "Velours (Milleraies / Chilly)",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 11.90, "max": 18.90},
+        "Quartier des Tissus": {"min": 14.99, "max": 17.99},
+        "Mondial Tissus": {"min": 16.99, "max": 16.99},
+        "Tissus des Ursules (Thoiry)": {"min": 9.99, "max": 9.99}
+      }
+    },
+    {
+      "produit": "Jean / Denim & Chambray",
+      "unite": "mètre",
+      "prix_par_enseigne": {
+        "Sudocoud": {"min": 15.90, "max": 15.90},
+        "Mondial Tissus": {"min": 12.99, "max": 19.99}
+      }
+    }
+  ]
+}
