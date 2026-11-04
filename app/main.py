@@ -238,14 +238,19 @@ def _normalize_chart(raw: dict, image_uri: str | None = None) -> dict:
             vals.append("")
         row: dict = {"taille": t, "values": vals[:len(headers)]}
         tissu_parts, extra_parts = [], []
+        seen_codes = set()
         for idx, (h, v) in enumerate(zip(headers, row["values"])):
             if not v:
                 continue
             code = h["code"]
             nums = _parse_numbers(v)
-            if code in _MEASURE_CODES and nums:
-                key = f"M_{idx}" if code == "MESURE" else code
-                # Détecte si le 2e nombre est une vraie fourchette (ex: 86 / 90 cm) ou une traduction en inches (ex: 86 cm / 34")
+            if nums:
+                if code in _MEASURE_CODES and code != "MESURE" and code not in seen_codes:
+                    key = code
+                    seen_codes.add(code)
+                else:
+                    key = f"M_{idx}"
+                # Détecte si le 2e nombre est une vraie fourchette (ex: 86 / 90 cm) ou une traduction en inches/yards (ex: 85 / 1 y)
                 if len(nums) > 1 and nums[0] <= nums[1] <= nums[0] * 1.35:
                     lo, hi = nums[0], nums[1]
                 else:
@@ -256,12 +261,12 @@ def _normalize_chart(raw: dict, image_uri: str | None = None) -> dict:
                 row[f"{key}_min"] = round(lo, 1)
                 row[f"{key}_max"] = round(hi, 1)
                 row[f"{key}_txt"] = v
-            elif code == "TISSU":
+            if code == "TISSU":
                 tissu_parts.append(f"{h['label']} : {v}")
                 if nums and "tissu_m" not in row:
                     val_m = nums[0] / 100.0 if "cm" in v.lower() or nums[0] > 15 else nums[0]
                     row["tissu_m"] = round(val_m, 2)
-            else:
+            elif code not in _MEASURE_CODES:
                 extra_parts.append(f"{h['label']} : {v}")
         if tissu_parts:
             row["tissu_txt"] = " • ".join(tissu_parts)

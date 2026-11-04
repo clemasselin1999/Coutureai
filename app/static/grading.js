@@ -67,6 +67,16 @@ function gInferCode(label, rawCode) {
   return c;
 }
 
+// Nettoie un intitulé bilingue (ex: "manches courtes / short sleeves" → "Manches courtes")
+function gCleanChartLabel(label) {
+  let s = String(label || "").trim();
+  const parts = s.split(/\s+\/\s+/);
+  if (parts.length > 1 && /[a-zA-Z]{2,}/.test(parts[0]) && /[a-zA-Z]{2,}/.test(parts[1])) {
+    s = parts[0].trim();
+  }
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
 // Compatibilité & normalisation locale d'un tableau des tailles
 function gEnsureHeaders(sc) {
   if (!sc) return sc;
@@ -85,23 +95,30 @@ function gEnsureHeaders(sc) {
       return "";
     });
     const row = { ...s, values };
-    const tissuParts = [], extraParts = [];
+    const tissuParts = [], extraParts = [], seenCode = new Set();
     headers.forEach((h, idx) => {
       const v = String(values[idx] || "").trim();
       if (!v) return;
       const nums = (v.match(/\d+(?:[.,]\d+)?/g) || []).map((x) => parseFloat(x.replace(",", ".")));
-      if ((h.code in GZ || h.code === "MESURE") && nums.length) {
-        const key = h.code === "MESURE" ? `M_${idx}` : h.code;
+      if (nums.length) {
+        let key;
+        if (h.code in GZ && !seenCode.has(h.code)) {
+          key = h.code;
+          seenCode.add(h.code);
+        } else {
+          key = `M_${idx}`;
+        }
         let lo = nums[0], hi = nums.length > 1 && nums[0] <= nums[1] && nums[1] <= nums[0] * 1.35 ? nums[1] : nums[0];
         if (/\bm\b/i.test(v) && !/cm|mm/i.test(v) && hi < 5) { lo = +(lo * 100).toFixed(1); hi = +(hi * 100).toFixed(1); }
         row[key] = +((lo + hi) / 2).toFixed(1);
         row[`${key}_min`] = lo;
         row[`${key}_max`] = hi;
         row[`${key}_txt`] = v;
-      } else if (h.code === "TISSU") {
+      }
+      if (h.code === "TISSU") {
         tissuParts.push(`${h.label} : ${v}`);
         if (nums.length && !row.tissu_m) row.tissu_m = +(nums[0] > 15 || /cm/i.test(v) ? nums[0] / 100 : nums[0]).toFixed(2);
-      } else {
+      } else if (!(h.code in GZ) && h.code !== "MESURE") {
         extraParts.push(`${h.label} : ${v}`);
       }
     });
@@ -112,18 +129,23 @@ function gEnsureHeaders(sc) {
   return { ...sc, headers, sizes };
 }
 
-// Liste dynamique des mesures à afficher dans Ajuster selon le tableau du patron
+// Liste dynamique de toutes les mesures présentes dans le tableau du patron
 function gChartMeasureZones(p) {
   const sc = gEnsureHeaders(p?.sizeChart);
   if (!sc?.headers?.length || !sc?.sizes?.length) return [];
   const zones = [], seen = new Set();
   sc.headers.forEach((h, idx) => {
+    const l = String(h.label || "").toLowerCase();
+    // On exclut uniquement la mercerie unitaire pure (ex: nombre de boutons)
+    if (/^(bouton|button|agrafe|pression|snap|aiguille|needle)/i.test(l.trim())) return;
     if (h.code in GZ && !seen.has(h.code)) {
       seen.add(h.code);
       zones.push({ z: h.code, k: GZ[h.code].k, chartLabel: h.label, h: GZ[h.code].h, c: GZ[h.code].c, l: GZ[h.code].l, fromChart: true });
-    } else if (h.code === "MESURE") {
+    } else {
       const z = `M_${idx}`;
-      zones.push({ z, k: h.label, chartLabel: h.label, fromChart: true, custom: true });
+      if (sc.sizes.some((s) => typeof s[z] === "number")) {
+        zones.push({ z, k: gCleanChartLabel(h.label), chartLabel: h.label, fromChart: true, custom: true });
+      }
     }
   });
   return zones;
@@ -427,12 +449,22 @@ function gSteps(g) {
     if (big(d.LV) && T === "jupe") add("Longueur", `Coupe devant et dos horizontalement sous les hanches et ${mv(d.LV)}.`);
   }
 
-  // Mesures personnalisées éventuelles issues du tableau (M_0, M_1...)
+  // Mesures issues des autres colonnes du tableau du patron (M_0, M_1...)
   for (const [z, val] of Object.entries(d)) {
     if (z.startsWith("M_") && big(val)) {
       const info = gZoneInfo(z, g);
-      add(`Ajuster « ${info.k} » (${val > 0 ? "+" : ""}${val.toLocaleString("fr-FR")} cm)`,
-        `Pour <b>${esc(info.k)}</b>, reporte la différence de <b>${val > 0 ? "+" : ""}${val.toLocaleString("fr-FR")} cm</b> sur la zone correspondante du patron (si c'est un tour, répartis <b>${cm(val / 4)}</b> sur chaque quart devant et dos ; si c'est une longueur ou largeur simple, ${mv(val)}).`);
+      const kl = String(info.k || "").toLowerCase();
+      let detail = `Pour <b>${esc(info.k)}</b> (départ : ${g.base[z]} cm → cible : ${g.target[z]} cm), reporte l'écart de <b>${val > 0 ? "+" : ""}${val.toLocaleString("fr-FR")} cm</b> : `;
+      if (/manche|sleeve/.test(kl)) {
+        detail += `coupe la pièce de manche horizontalement (à mi-hauteur) et <b>${mv(val)}</b> parallèlement au droit-fil, puis redessine les côtés de la manche.`;
+      } else if (/empi[eè]cement|yoke/.test(kl)) {
+        detail += `sur la pièce d'empiècement (devant/dos), trace une ligne horizontale et <b>${mv(val)}</b>.`;
+      } else if (/bord-c[oô]te|bord cote|ribbing|bande/.test(kl)) {
+        detail += `ajuste la bande de bord-côte en longueur : <b>${mv(val)}</b>.`;
+      } else {
+        detail += `si c'est un tour, répartis <b>${cm(val / 4)}</b> sur chaque quart devant et dos ; si c'est une longueur ou hauteur, coupe horizontalement et <b>${mv(val)}</b>.`;
+      }
+      add(`Ajuster « ${info.k} » (${val > 0 ? "+" : ""}${val.toLocaleString("fr-FR")} cm)`, detail);
     }
   }
 
@@ -442,6 +474,13 @@ function gSteps(g) {
     ${top ? "<li>Mesure l'emmanchure (devant + dos) et la tête de manche : la manche doit être 1 à 3 cm plus longue (embu).</li>" : ""}
     <li>Ajoute les marges de couture, reporte crans et droit-fil.</li><li>Idéalement : une <b>toile d'essai</b> dans un tissu bon marché.</li></ul>`);
   return { d, st };
+}
+
+function gGetProfMeasure(pr, item) {
+  if (!pr?.measurements) return null;
+  if (pr.measurements[item.k] != null) return pr.measurements[item.k];
+  if (item.chartLabel && pr.measurements[item.chartLabel] != null) return pr.measurements[item.chartLabel];
+  return null;
 }
 
 // ---------------------------------------------------------------- vue Ajuster
@@ -483,7 +522,7 @@ function gradeView() {
 
   const rows = activeZones.map((item) => {
     const z = item.z, rangeTxt = curRow?.[`${z}_txt`];
-    const profVal = pr?.measurements?.[item.k];
+    const profVal = gGetProfMeasure(pr, item);
     const curTarget = gn(g.target[z]);
     const isMissingInProf = pr && profVal == null;
     const isDiffFromProf = pr && profVal != null && curTarget != null && Math.abs(curTarget - profVal) >= 0.1;
@@ -494,15 +533,15 @@ function gradeView() {
         ${item.fromChart ? `<span class="mbadge good" style="font-size:10px;padding:1px 6px;margin-top:2px">Du tableau</span>` : ""}
       </td>
       <td><input type="number" inputmode="decimal" step="0.1" data-bind="g.base.${z}" value="${esc(g.base[z] ?? "")}">
-        ${rangeTxt && rangeTxt.includes("/") ? `<div class="muted small">Tableau : ${esc(rangeTxt)}</div>` : ""}</td>
+        ${rangeTxt ? `<div class="muted small">Tableau : ${esc(rangeTxt)}</div>` : ""}</td>
       <td><input type="number" inputmode="decimal" step="0.1" data-bind="g.target.${z}" value="${esc(g.target[z] ?? "")}" placeholder="${isMissingInProf ? "À compléter" : ""}">
         ${isMissingInProf ? `<div class="small" style="color:var(--amber)">Absent du profil de ${esc(pr.name)} (sera enregistré)</div>` : ""}
         ${isDiffFromProf ? `<div class="small" style="color:var(--rose)">Profil actuel : ${profVal} cm</div>` : ""}</td></tr>`;
   }).join("");
 
   const toggleExtraBtn = chartZones.length ? `<div class="row between wrap" style="margin-top:4px">
-    <span class="muted small">${g.showAllMeasures ? "Toutes les mesures sont affichées." : `Affichage adapté aux ${chartZones.length} mesure(s) du tableau de « ${esc(p.name)} ».`}</span>
-    <button class="btn small" data-act="gtoggleall">${g.showAllMeasures ? "N'afficher que les mesures du tableau" : "+ Afficher les autres mesures (si mesuré à plat)"}</button>
+    <span class="muted small">${g.showAllMeasures ? "Toutes les mesures sont affichées." : `Affichage des ${chartZones.length} mesure(s) issues du tableau de « ${esc(p.name)} ».`}</span>
+    <button class="btn small" data-act="gtoggleall">${g.showAllMeasures ? "N'afficher que les mesures du tableau" : "+ Afficher aussi les mesures corporelles standards"}</button>
   </div>` : "";
 
   const out = g.out;
@@ -530,7 +569,10 @@ function gradeView() {
       <div style="overflow-x:auto"><table class="mtable gtable"><thead><tr><th>Mesure (cm)</th><th>${g.selSize ? `Taille ${esc(g.selSize)} du patron` : g.method === "A" ? "Taille du patron" : "Vêtement / patron"}</th><th>Cible (${pr ? esc(pr.name) : "corps"})</th></tr></thead><tbody>${rows}</tbody></table></div>
       ${toggleExtraBtn}
       ${["haut", "robe", "veste"].includes(g.type) && activeZones.some((x) => x.z === "P") ? `<label class="row small"><input type="checkbox" data-gfba="1" ${g.fba ? "checked" : ""} style="width:auto"> L'écart est seulement à la poitrine, les épaules vont bien (FBA)</label>` : ""}
-      <div class="row wrap"><button class="btn primary" style="flex:2" data-act="gcalc">${ico("check", "ico")} Calculer les étapes pas-à-pas</button></div></div>
+      <div class="row wrap">
+        ${pr ? `<button class="btn" style="flex:1" data-act="gsaveprof">${ico("save", "ico")} Enregistrer les mesures sur le profil de ${esc(pr.name)}</button>` : ""}
+        <button class="btn primary" style="flex:2" data-act="gcalc">${ico("check", "ico")} Calculer les étapes pas-à-pas</button>
+      </div></div>
     ${res}</div>`;
 }
 
@@ -546,7 +588,7 @@ function gFillProfile() {
       if (v != null) S.g.target[z] = v;
     }
     for (const item of gChartMeasureZones(p)) {
-      const v = pr.measurements?.[item.k];
+      const v = gGetProfMeasure(pr, item);
       if (v != null) S.g.target[item.z] = v;
     }
   }
@@ -576,11 +618,11 @@ async function gSyncToProfile() {
   for (const item of gActiveZones(g)) {
     const val = gn(g.target[item.z]);
     if (val == null || val <= 0) continue;
-    const oldVal = gn(pr.measurements?.[item.k]);
+    const oldVal = gn(gGetProfMeasure(pr, item));
     if (oldVal == null) {
       added.push({ k: item.k, val });
     } else if (Math.abs(oldVal - val) >= 0.1) {
-      changed.push({ k: item.k, oldVal, val });
+      changed.push({ k: item.k, chartLabel: item.chartLabel, oldVal, val });
     }
   }
   if (!added.length && !changed.length) return;
@@ -591,11 +633,17 @@ async function gSyncToProfile() {
     applyChanged = confirm(`Certaines mesures diffèrent de celles enregistrées sur le profil de « ${pr.name} » :\n\n${diffList}\n\nVoulez-vous mettre à jour le profil de ${pr.name} avec ces nouvelles valeurs ?`);
   }
   added.forEach((a) => { nextM[a.k] = a.val; });
-  if (applyChanged) changed.forEach((c) => { nextM[c.k] = c.val; });
+  if (applyChanged) {
+    changed.forEach((c) => {
+      if (c.chartLabel && nextM[c.chartLabel] != null && nextM[c.k] == null) delete nextM[c.chartLabel];
+      nextM[c.k] = c.val;
+    });
+  }
 
   if (added.length || applyChanged) {
     const updated = await api(`/api/profiles/${pr.id}`, { method: "PUT", json: { ...pr, measurements: nextM } });
     S.profiles = S.profiles.map((x) => (x.id === updated.id ? updated : x));
+    if (S.prof?.id === updated.id) S.prof.form = JSON.parse(JSON.stringify(updated));
     const msgParts = [];
     if (added.length) msgParts.push(`${added.length} mesure(s) ajoutée(s)`);
     if (applyChanged) msgParts.push(`${changed.length} mesure(s) mise(s) à jour`);
@@ -613,6 +661,7 @@ const DEFAULT_HEADERS = () => [
 Object.assign(A, {
   gmethod: (d) => { S.g.method = d.v; S.g.out = null; render(); },
   gtoggleall: () => { S.g.showAllMeasures = !S.g.showAllMeasures; render(); },
+  gsaveprof: guard(async () => { await gSyncToProfile(); render(); }),
   gselsize: (d) => {
     const p = S.patterns.find((x) => x.id === S.g.pid);
     const sc = gEnsureHeaders(p?.sizeChart);
