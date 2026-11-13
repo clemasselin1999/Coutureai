@@ -96,8 +96,9 @@ def seed_if_needed():
             "site_web": m.get("site_web", ""), "specificite": m.get("specificite", ""),
             "createdAt": now_ms()})
         site = {"secteur": m.get("secteur", ""), "adresse": m.get("adresse", "")}
-        if site not in s["sites"]:
-            s["sites"].append(site)
+        sites = s.setdefault("sites", [])
+        if site not in sites:
+            sites.append(site)
     store_list = list(stores.values())
     existing_prods = {p["id"]: p for p in db.list_docs("products")}
 
@@ -131,16 +132,19 @@ def seed_if_needed():
 def effective_price(p: dict, store_id: str) -> dict | None:
     """Prix retenu : dernier prix relevé sur ticket, sinon moyenne min/max de la base."""
     e = (p.get("prices") or {}).get(store_id)
-    if not e:
+    if not e or not isinstance(e, dict):
         return None
-    obs = sorted(e.get("obs") or [], key=lambda o: o.get("date", ""), reverse=True)
+    obs = sorted([o for o in (e.get("obs") or []) if isinstance(o, dict)], key=lambda o: o.get("date", ""), reverse=True)
     if obs:
-        return {"prix": round(obs[0]["prix"], 2), "source": "ticket", "date": obs[0].get("date"),
+        return {"prix": round(num(obs[0].get("prix")), 2), "source": "ticket", "date": obs[0].get("date"),
                 "min": e.get("min"), "max": e.get("max")}
-    if e.get("min") is None:
+    lo, hi = e.get("min"), e.get("max")
+    if lo is None and hi is None:
         return None
-    return {"prix": round((e["min"] + e["max"]) / 2, 2), "source": "estimation", "date": None,
-            "min": e["min"], "max": e["max"]}
+    lo = hi if lo is None else lo
+    hi = lo if hi is None else hi
+    return {"prix": round((num(lo) + num(hi)) / 2, 2), "source": "estimation", "date": None,
+            "min": num(lo), "max": num(hi)}
 
 
 def price_map(p: dict) -> dict:
@@ -156,7 +160,7 @@ def summary():
 
     ratios: dict[str, list[float]] = {s["id"]: [] for s in stores}
     out_products = []
-    for p in sorted(products, key=lambda x: (x.get("categorie", ""), x["nom"])):
+    for p in sorted(products, key=lambda x: (x.get("categorie", ""), x.get("nom", ""))):
         pm = price_map(p)
         best = min(pm.items(), key=lambda kv: kv[1]["prix"]) if pm else None
         if len(pm) >= 2:
@@ -164,7 +168,7 @@ def summary():
             for sid, ep in pm.items():
                 ratios.setdefault(sid, []).append(ep["prix"] / lo)
         out_products.append({
-            "id": p["id"], "nom": p["nom"], "categorie": p.get("categorie", ""), "unite": p["unite"],
+            "id": p["id"], "nom": p.get("nom", ""), "categorie": p.get("categorie", ""), "unite": p.get("unite") or "unité",
             "prix": pm, "meilleur": {"store_id": best[0], "prix": best[1]["prix"]} if best else None})
 
     spent: dict[str, float] = {}
@@ -175,6 +179,7 @@ def summary():
         rs = ratios.get(s["id"], [])
         out_stores.append({
             **s,
+            "sites": s.get("sites") or [],
             "nb_produits": sum(1 for p in products if s["id"] in (p.get("prices") or {})),
             "indice_prix": round(sum(rs) / len(rs) * 100) if rs else None,
             "nb_comparaisons": len(rs),
@@ -185,13 +190,13 @@ def summary():
     return {
         "stats": {
             "nb_enseignes": len(stores), "nb_produits": len(products), "nb_tickets": len(receipts),
-            "nb_prix_tickets": sum(len(e.get("obs") or []) for p in products
+            "nb_prix_tickets": sum(len((e if isinstance(e, dict) else {}).get("obs") or []) for p in products
                                    for e in (p.get("prices") or {}).values()),
             "depense_totale": round(sum(num(r.get("total")) for r in receipts), 2)},
         "stores": out_stores,
         "products": out_products,
         "receipts": [{k: r.get(k) for k in ("id", "date", "store_id", "magasin", "total", "imageUri")}
-                     | {"nb_lignes": len(r.get("lignes", []))} for r in receipts[:30]],
+                     | {"nb_lignes": len(r.get("lignes") or [])} for r in receipts[:30]],
     }
 
 
@@ -208,7 +213,7 @@ def scan_receipt(file: UploadFile = File(...)):
              "total": 0, "lignes": [], "error": ""}
     try:
         res = gemini.extract_receipt(data, file.content_type or "image/jpeg",
-                                     [s["nom"] for s in stores], [p["nom"] for p in products])
+                                     [s.get("nom", "") for s in stores], [p.get("nom", "") for p in products])
     except gemini.GeminiError as e:
         draft["error"] = str(e)
         return draft
@@ -216,7 +221,7 @@ def scan_receipt(file: UploadFile = File(...)):
     draft["magasin"] = st["nom"] if st else res.get("magasin", "")
     draft["date"] = res.get("date") or draft["date"]
     draft["total"] = num(res.get("total"))
-    for l in res.get("lignes", []):
+    for l in res.get("lignes") or []:
         q = num(l.get("quantite"), 1) or 1
         pt = num(l.get("prix_total"))
         pu = num(l.get("prix_unitaire")) or (pt / q if q else 0)
@@ -225,7 +230,7 @@ def scan_receipt(file: UploadFile = File(...)):
         draft["lignes"].append({
             "libelle": l.get("libelle", ""),
             "nom": prod["nom"] if prod else (l.get("produit") or l.get("libelle") or ""),
-            "quantite": q, "unite": l.get("unite") or (prod["unite"] if prod else "unité"),
+            "quantite": q, "unite": l.get("unite") or (prod.get("unite") if prod else None) or "unité",
             "prix_unitaire": round(pu, 2), "prix_total": round(pt, 2),
             "nouveau": prod is None})
     return draft
@@ -235,9 +240,7 @@ def scan_receipt(file: UploadFile = File(...)):
 def save_receipt(draft: dict):
     stores = db.list_docs("enseignes")
     products = db.list_docs("products")
-    magasin = (draft.get("magasin") or "").strip()
-    if not magasin:
-        raise HTTPException(400, "Indiquez le magasin.")
+    magasin = (draft.get("magasin") or "").strip() or "Mercerie"
     st = find_store(magasin, stores)
     if not st:
         st = {"id": slug(magasin), "nom": short(magasin) or magasin, "sites": [], "site_web": "",
@@ -246,8 +249,10 @@ def save_receipt(draft: dict):
     rid = uuid.uuid4().hex
     date = draft.get("date") or time.strftime("%Y-%m-%d")
     lignes, touched = [], {}
-    for l in draft.get("lignes", []):
-        nom = (l.get("nom") or "").strip()
+    for l in draft.get("lignes") or []:
+        if not isinstance(l, dict):
+            continue
+        nom = (l.get("nom") or l.get("libelle") or "").strip()
         pu = num(l.get("prix_unitaire"))
         if not nom or pu <= 0:
             continue
@@ -256,12 +261,24 @@ def save_receipt(draft: dict):
             prod = {"id": slug(nom), "nom": nom, "categorie": "Mercerie",
                     "unite": l.get("unite") or "unité", "prices": {}, "createdAt": now_ms()}
             products.append(prod)
+        prod.setdefault("unite", l.get("unite") or "unité")
         touched[norm(nom)] = prod
-        e = prod.setdefault("prices", {}).setdefault(st["id"], {"min": None, "max": None, "obs": []})
-        e["obs"].append({"prix": pu, "date": date, "receiptId": rid})
-        lignes.append({"produit_id": prod["id"], "nom": prod["nom"], "quantite": num(l.get("quantite"), 1),
+        prices = prod.get("prices")
+        if not isinstance(prices, dict):
+            prices = prod["prices"] = {}
+        e = prices.get(st["id"])
+        if not isinstance(e, dict):
+            e = prices[st["id"]] = {"min": None, "max": None, "obs": []}
+        e.setdefault("min", None)
+        e.setdefault("max", None)
+        obs = e.get("obs")
+        if not isinstance(obs, list):
+            obs = e["obs"] = []
+        obs.append({"prix": pu, "date": date, "receiptId": rid})
+        q = num(l.get("quantite"), 1) or 1
+        lignes.append({"produit_id": prod["id"], "nom": prod["nom"], "quantite": q,
                        "unite": prod["unite"], "prix_unitaire": pu,
-                       "prix_total": num(l.get("prix_total")) or round(pu * num(l.get("quantite"), 1), 2)})
+                       "prix_total": num(l.get("prix_total")) or round(pu * q, 2)})
     for p in touched.values():
         db.save_doc("products", p)
     total = num(draft.get("total")) or round(sum(l["prix_total"] for l in lignes), 2)
@@ -279,12 +296,14 @@ def delete_receipt(rid: str):
     for p in db.list_docs("products"):          # retire les prix relevés par ce ticket
         changed = False
         for e in (p.get("prices") or {}).values():
+            if not isinstance(e, dict):
+                continue
             before = len(e.get("obs") or [])
-            e["obs"] = [o for o in e.get("obs", []) if o.get("receiptId") != rid]
+            e["obs"] = [o for o in (e.get("obs") or []) if isinstance(o, dict) and o.get("receiptId") != rid]
             changed |= len(e["obs"]) != before
         if changed:
             db.save_doc("products", p)
-    if r.get("imageUri", "").startswith("/uploads/"):
+    if (r.get("imageUri") or "").startswith("/uploads/"):
         f = UPLOAD_DIR / Path(r["imageUri"]).name
         if f.exists():
             f.unlink()

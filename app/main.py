@@ -586,12 +586,40 @@ def sync_import(data: dict):
                 target.write_bytes(_b64.b64decode(b64))
             except Exception:
                 pass
-    for table in ("patterns", "profiles", "receipts"):
-        if isinstance(data.get(table), list):
-            db.replace_table(table, data[table])
-    for table in ("enseignes", "products"):
-        if isinstance(data.get(table), list) and len(data[table]) > 0:
-            db.replace_table(table, data[table])
+    if isinstance(data.get("patterns"), list):
+        for p in data["patterns"]:
+            if isinstance(p, dict):
+                p.setdefault("resources", [])
+                p.setdefault("fabricSuggestions", [])
+        db.replace_table("patterns", data["patterns"])
+    if isinstance(data.get("profiles"), list):
+        for pr in data["profiles"]:
+            if isinstance(pr, dict):
+                pr.setdefault("measurements", {})
+        db.replace_table("profiles", data["profiles"])
+    if isinstance(data.get("receipts"), list):
+        for r in data["receipts"]:
+            if isinstance(r, dict):
+                r.setdefault("lignes", [])
+        db.replace_table("receipts", data["receipts"])
+    if isinstance(data.get("enseignes"), list) and len(data["enseignes"]) > 0:
+        for s in data["enseignes"]:
+            if isinstance(s, dict):
+                s.setdefault("sites", [])
+        db.replace_table("enseignes", data["enseignes"])
+    if isinstance(data.get("products"), list) and len(data["products"]) > 0:
+        for prod in data["products"]:
+            if isinstance(prod, dict):
+                prod.setdefault("unite", "unité")
+                prices = prod.setdefault("prices", {})
+                if isinstance(prices, dict):
+                    for sid, e in prices.items():
+                        if isinstance(e, dict):
+                            e.setdefault("min", None)
+                            e.setdefault("max", None)
+                            if not isinstance(e.get("obs"), list):
+                                e["obs"] = []
+        db.replace_table("products", data["products"])
     if isinstance(data.get("shoppingList"), list):
         db.kv_set("shopping_list", data["shoppingList"])
     if isinstance(data.get("categories"), list) and data["categories"]:
