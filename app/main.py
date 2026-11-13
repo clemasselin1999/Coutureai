@@ -553,8 +553,21 @@ def _collect_upload_refs(payload: dict) -> set[str]:
     return {Path(u).name for u in refs if str(u).startswith("/uploads/")}
 
 
+def _safe_file_key(fname: str) -> str:
+    return fname.replace(".", "_DOT_")
+
+
+def _syncable_files(payload: dict) -> list[str]:
+    out = []
+    for fname in sorted(_collect_upload_refs(payload)):
+        fpath = UPLOAD_DIR / fname
+        if fpath.exists() and fpath.stat().st_size <= 4_000_000:
+            out.append(fname)
+    return out
+
+
 @app.get("/api/sync/export")
-def sync_export():
+def sync_export(files: int = 1):
     stores = db.list_docs("enseignes")
     receipts = db.list_docs("receipts")
     products = merceries.ensure_receipt_observations(db.list_docs("products"), receipts, stores)
@@ -570,14 +583,25 @@ def sync_export():
         "shoppingList": db.kv_get("shopping_list", []),
         "geminiKey": db.kv_get("gemini_key") or "",
     }
-    files = {}
-    for fname in _collect_upload_refs(payload):
-        fpath = UPLOAD_DIR / fname
-        # Embarque les images/PDF jusqu'à 4 Mo chacun pour Firebase Realtime DB
-        if fpath.exists() and fpath.stat().st_size <= 4_000_000:
-            files[fname.replace(".", "_DOT_")] = _b64.b64encode(fpath.read_bytes()).decode("ascii")
-    payload["files"] = files
+    names = _syncable_files(payload)
+    payload["fileNames"] = [_safe_file_key(n) for n in names]
+    if files:
+        payload["files"] = {_safe_file_key(n): _b64.b64encode((UPLOAD_DIR / n).read_bytes()).decode("ascii") for n in names}
     return payload
+
+
+@app.get("/api/sync/local-files")
+def sync_local_files():
+    return [_safe_file_key(f.name) for f in UPLOAD_DIR.iterdir() if f.is_file()]
+
+
+@app.get("/api/sync/file/{safe_name}")
+def sync_get_file(safe_name: str):
+    fname = Path(safe_name.replace("_DOT_", ".")).name
+    fpath = UPLOAD_DIR / fname
+    if not fpath.exists():
+        raise HTTPException(404)
+    return {"b64": _b64.b64encode(fpath.read_bytes()).decode("ascii")}
 
 
 @app.post("/api/sync/import")

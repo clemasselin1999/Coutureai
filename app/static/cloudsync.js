@@ -1,4 +1,4 @@
-/* CoutureIA – CoutureSync Cloud via Firebase Realtime Database (même principe que ZenBudget) */
+﻿/* CoutureIA – CoutureSync Cloud via Firebase Realtime Database (même principe que ZenBudget) */
 "use strict";
 
 const FIREBASE_CONFIG = {
@@ -65,6 +65,41 @@ function syncUnpack(raw) {
   return raw;
 }
 
+// --- Fichiers (photos de tickets / patrons) stockés un par un sous budgets/<clé>_files/<nom> (limite Firebase : 16 Mo par écriture)
+async function syncCloudFileNames(key) {
+  try {
+    const r = await fetch(`${FIREBASE_CONFIG.databaseURL}/budgets/${key}_files.json?shallow=true`);
+    const j = await r.json();
+    return j && typeof j === "object" ? Object.keys(j) : [];
+  } catch (_) { return null; }
+}
+
+async function syncUploadFiles(key, wantedNames) {
+  const db = syncDb();
+  const inCloud = new Set((await syncCloudFileNames(key)) || []);
+  for (const n of wantedNames || []) {
+    if (inCloud.has(n)) continue;
+    try {
+      const f = await api(`/api/sync/file/${encodeURIComponent(n)}`);
+      await db.ref(`budgets/${key}_files/${n}`).set(f.b64);
+    } catch (e) { console.warn("Upload fichier ignoré :", n, e); }
+  }
+}
+
+async function syncDownloadFiles(key, wantedNames) {
+  const db = syncDb();
+  const local = new Set(await api("/api/sync/local-files"));
+  const files = {};
+  for (const n of wantedNames || []) {
+    if (local.has(n)) continue;
+    try {
+      const v = (await db.ref(`budgets/${key}_files/${n}`).once("value")).val();
+      if (v) files[n] = v;
+    } catch (e) { console.warn("Téléchargement fichier ignoré :", n, e); }
+  }
+  if (Object.keys(files).length) await api("/api/sync/import", { json: { files } });
+}
+
 async function syncPushNow(silent = false) {
   const sy = S.sync, key = syncSafeKey(sy.profile);
   if (!key || key.length < 3) {
@@ -78,7 +113,7 @@ async function syncPushNow(silent = false) {
   }
   if (!silent) { sy.busy = true; sy.msg = ""; render(); }
   try {
-    let payload = await api("/api/sync/export");
+    let payload = await api("/api/sync/export?files=0");
     const snap = await db.ref(`budgets/${key}`).once("value");
     const existing = syncUnpack(snap.val());
     const isEmptyLocal = !(payload.patterns?.length) && !(payload.profiles?.length) && !(payload.receipts?.length);
@@ -87,27 +122,21 @@ async function syncPushNow(silent = false) {
       await syncApplyIncoming(existing, true);
       return;
     }
-    // Fusionne les tickets (receipts) et images (files) déjà présents sur Firebase pour ne jamais écraser les tickets d'un autre appareil
+    // Fusionne les tickets déjà présents sur Firebase pour ne jamais écraser les tickets d'un autre appareil
     if (existing) {
       const delSet = new Set([...(payload.deletedIds || []), ...(existing.deletedIds || [])]);
       const localRIds = new Set((payload.receipts || []).map((r) => r.id));
       const missingReceipts = (existing.receipts || []).filter((r) => r && r.id && !localRIds.has(r.id) && !delSet.has(r.id));
       if (missingReceipts.length > 0) {
-        const mergedFiles = { ...(existing.files || {}), ...(payload.files || {}) };
         await api("/api/sync/import", {
-          json: {
-            receipts: [...(payload.receipts || []), ...missingReceipts],
-            deletedIds: [...delSet],
-            files: mergedFiles,
-          },
+          json: { receipts: [...(payload.receipts || []), ...missingReceipts], deletedIds: [...delSet], files: existing.files || {} },
         });
-        payload = await api("/api/sync/export");
+        await syncDownloadFiles(key, existing.fileNames || []);
+        payload = await api("/api/sync/export?files=0");
         await M_load();
       }
-      if (existing.files) {
-        payload.files = { ...existing.files, ...(payload.files || {}) };
-      }
     }
+    await syncUploadFiles(key, payload.fileNames || []);
     const cleanPayload = JSON.parse(JSON.stringify(payload));
     const ts = Date.now();
     sy._lastTimestamp = ts;
@@ -124,7 +153,8 @@ async function syncPushNow(silent = false) {
   } catch (e) {
     console.error("Firebase Push Error:", e);
     sy.status = "err";
-    if (!silent) sy.msg = "❌ Erreur d'envoi : " + (e.message || e);
+    sy.msg = "❌ Erreur d'envoi : " + (e.message || e);
+    if (silent) toast("❌ Synchro Cloud échouée : " + (e.message || e), true);
   } finally {
     sy.busy = false;
     if (!silent || S.tab === "settings") render();
@@ -132,7 +162,7 @@ async function syncPushNow(silent = false) {
 }
 
 async function syncApplyIncoming(rawCloudData, silent = false) {
-  const sy = S.sync;
+  const sy = S.sync, key = syncSafeKey(sy.profile);
   const cloudData = syncUnpack(rawCloudData);
   if (!cloudData) return;
   const copy = { ...cloudData };
@@ -144,6 +174,7 @@ async function syncApplyIncoming(rawCloudData, silent = false) {
   if (h && h === sy._lastHash && silent) return;
   sy._updatingFromCloud = true;
   try {
+    await syncDownloadFiles(key, copy.fileNames || []);
     await api("/api/sync/import", { json: copy });
     sy._lastHash = h;
     sy._lastTimestamp = ts;
