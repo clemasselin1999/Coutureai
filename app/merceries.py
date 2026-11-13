@@ -151,12 +151,69 @@ def price_map(p: dict) -> dict:
     return {sid: ep for sid in (p.get("prices") or {}) if (ep := effective_price(p, sid))}
 
 
+def ensure_receipt_observations(products: list[dict], receipts: list[dict], stores: list[dict]) -> list[dict]:
+    """Garantit que chaque ligne de chaque ticket enregistré figure bien dans les prix relevés (obs) des produits."""
+    if not receipts:
+        return products
+    by_id = {p["id"]: p for p in products if p.get("id")}
+    by_norm = {norm(p.get("nom", "")): p for p in products if p.get("nom")}
+    store_ids = {s["id"] for s in stores if s.get("id")}
+    changed_prods: dict[str, dict] = {}
+    for r in receipts:
+        if not isinstance(r, dict):
+            continue
+        rid = r.get("id") or ""
+        sid = r.get("store_id") or slug(r.get("magasin") or "mercerie")
+        date = r.get("date") or time.strftime("%Y-%m-%d")
+        if sid and sid not in store_ids and r.get("magasin"):
+            st = {"id": sid, "nom": short(r["magasin"]) or r["magasin"], "sites": [], "site_web": "",
+                  "specificite": "Ajouté depuis un ticket", "createdAt": r.get("createdAt") or now_ms()}
+            db.save_doc("enseignes", st)
+            stores.append(st)
+            store_ids.add(sid)
+        for l in r.get("lignes") or []:
+            if not isinstance(l, dict):
+                continue
+            nom = (l.get("nom") or l.get("libelle") or "").strip()
+            pu = num(l.get("prix_unitaire"))
+            if not nom or pu <= 0:
+                continue
+            pid = l.get("produit_id") or slug(nom)
+            prod = by_id.get(pid) or by_norm.get(norm(nom))
+            if not prod:
+                prod = {"id": pid, "nom": nom, "categorie": "Mercerie",
+                        "unite": l.get("unite") or "unité", "prices": {}, "createdAt": now_ms()}
+                products.append(prod)
+                by_id[prod["id"]] = prod
+                by_norm[norm(nom)] = prod
+                changed_prods[prod["id"]] = prod
+            prices = prod.get("prices")
+            if not isinstance(prices, dict):
+                prices = prod["prices"] = {}
+                changed_prods[prod["id"]] = prod
+            e = prices.get(sid)
+            if not isinstance(e, dict):
+                e = prices[sid] = {"min": None, "max": None, "obs": []}
+                changed_prods[prod["id"]] = prod
+            obs = e.get("obs")
+            if not isinstance(obs, list):
+                obs = e["obs"] = []
+                changed_prods[prod["id"]] = prod
+            # Vérifie si ce relevé (ticket + prix) est déjà présent
+            if not any(isinstance(o, dict) and o.get("receiptId") == rid and abs(num(o.get("prix")) - pu) < 0.005 for o in obs):
+                obs.append({"prix": pu, "date": date, "receiptId": rid})
+                changed_prods[prod["id"]] = prod
+    for p in changed_prods.values():
+        db.save_doc("products", p)
+    return products
+
+
 # ---------------------------------------------------------------- résumé
 @router.get("/summary")
 def summary():
     stores = db.list_docs("enseignes")
-    products = db.list_docs("products")
     receipts = db.list_docs("receipts")
+    products = ensure_receipt_observations(db.list_docs("products"), receipts, stores)
 
     ratios: dict[str, list[float]] = {s["id"]: [] for s in stores}
     out_products = []
@@ -308,6 +365,9 @@ def delete_receipt(rid: str):
         if f.exists():
             f.unlink()
     db.delete_doc("receipts", rid)
+    dels = set(db.kv_get("deleted_ids", []))
+    dels.add(rid)
+    db.kv_set("deleted_ids", list(dels))
     return {"ok": True}
 
 

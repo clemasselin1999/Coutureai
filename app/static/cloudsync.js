@@ -67,15 +67,34 @@ async function syncPushNow(silent = false) {
   }
   if (!silent) { sy.busy = true; sy.msg = ""; render(); }
   try {
-    const payload = await api("/api/sync/export");
+    let payload = await api("/api/sync/export");
+    const snap = await db.ref(`budgets/${key}`).once("value");
+    const existing = snap.val();
     const isEmptyLocal = !(payload.patterns?.length) && !(payload.profiles?.length) && !(payload.receipts?.length);
-    if (silent && isEmptyLocal) {
+    if (silent && isEmptyLocal && existing && ((existing.patterns?.length) || (existing.profiles?.length) || (existing.receipts?.length))) {
       // Sécurité anti-écrasement : si le serveur vient de redémarrer à vide (ex: mise à jour Render), on récupère Firebase au lieu d'écraser
-      const snap = await db.ref(`budgets/${key}`).once("value");
-      const existing = snap.val();
-      if (existing && ((existing.patterns?.length) || (existing.profiles?.length) || (existing.receipts?.length))) {
-        await syncApplyIncoming(existing, true);
-        return;
+      await syncApplyIncoming(existing, true);
+      return;
+    }
+    // Fusionne les tickets (receipts) et images (files) déjà présents sur Firebase pour ne jamais écraser les tickets d'un autre appareil
+    if (existing) {
+      const delSet = new Set([...(payload.deletedIds || []), ...(existing.deletedIds || [])]);
+      const localRIds = new Set((payload.receipts || []).map((r) => r.id));
+      const missingReceipts = (existing.receipts || []).filter((r) => r && r.id && !localRIds.has(r.id) && !delSet.has(r.id));
+      if (missingReceipts.length > 0) {
+        const mergedFiles = { ...(existing.files || {}), ...(payload.files || {}) };
+        await api("/api/sync/import", {
+          json: {
+            receipts: [...(payload.receipts || []), ...missingReceipts],
+            deletedIds: [...delSet],
+            files: mergedFiles,
+          },
+        });
+        payload = await api("/api/sync/export");
+        if (S.tab === "merceries" || S.m?.data) await M_load();
+      }
+      if (existing.files) {
+        payload.files = { ...existing.files, ...(payload.files || {}) };
       }
     }
     const cleanPayload = JSON.parse(JSON.stringify(payload));
@@ -115,13 +134,19 @@ async function syncApplyIncoming(cloudData, silent = false) {
     sy._lastHash = h;
     sy._lastTimestamp = ts;
     await loadAll();
-    if (S.m?.data) await M_load();
+    if (S.tab === "merceries" || S.m?.data) await M_load();
     sy.lastSync = new Date().toLocaleTimeString("fr-FR");
     localStorage.setItem("couture_last_sync", sy.lastSync);
     sy.status = "ok";
     if (!silent) sy.msg = "✅ Données récupérées depuis le Cloud !";
     toast("🔄 Données mises à jour depuis le Cloud");
     render();
+    // Si cet appareil possède des tickets locaux qui n'étaient pas encore sur le Cloud, on renvoie la fusion au Cloud
+    const cloudReceiptCount = (copy.receipts || []).length;
+    const localReceiptCount = (S.m?.data?.receipts || []).length;
+    if (localReceiptCount > cloudReceiptCount) {
+      setTimeout(() => syncPushNow(true), 1000);
+    }
   } finally {
     setTimeout(() => { sy._updatingFromCloud = false; }, 600);
   }
@@ -169,7 +194,7 @@ async function syncPullNow(silent = false) {
 
 function syncScheduleAutoPush() {
   const sy = S.sync, key = syncSafeKey(sy.profile);
-  if (!sy.auto || !sy._initialized || !key || key.length < 3 || sy._updatingFromCloud) return;
+  if (!sy.auto || !key || key.length < 3 || sy._updatingFromCloud) return;
   clearTimeout(sy._pushTimer);
   sy._pushTimer = setTimeout(() => syncPushNow(true), 800);
 }

@@ -555,14 +555,18 @@ def _collect_upload_refs(payload: dict) -> set[str]:
 
 @app.get("/api/sync/export")
 def sync_export():
+    stores = db.list_docs("enseignes")
+    receipts = db.list_docs("receipts")
+    products = merceries.ensure_receipt_observations(db.list_docs("products"), receipts, stores)
     payload = {
         "patterns": db.list_docs("patterns"),
         "profiles": db.list_docs("profiles"),
         "categories": db.get_categories(),
         "categoryImages": db.kv_get("category_images", {}),
-        "enseignes": db.list_docs("enseignes"),
-        "products": db.list_docs("products"),
-        "receipts": db.list_docs("receipts"),
+        "enseignes": stores,
+        "products": products,
+        "receipts": receipts,
+        "deletedIds": db.kv_get("deleted_ids", []),
         "shoppingList": db.kv_get("shopping_list", []),
         "geminiKey": db.kv_get("gemini_key") or "",
     }
@@ -586,6 +590,10 @@ def sync_import(data: dict):
                 target.write_bytes(_b64.b64decode(b64))
             except Exception:
                 pass
+    deleted_ids = set(db.kv_get("deleted_ids", []))
+    if isinstance(data.get("deletedIds"), list):
+        deleted_ids.update(str(x) for x in data["deletedIds"] if x)
+        db.kv_set("deleted_ids", list(deleted_ids))
     if isinstance(data.get("patterns"), list):
         for p in data["patterns"]:
             if isinstance(p, dict):
@@ -597,11 +605,13 @@ def sync_import(data: dict):
             if isinstance(pr, dict):
                 pr.setdefault("measurements", {})
         db.replace_table("profiles", data["profiles"])
-    if isinstance(data.get("receipts"), list):
-        for r in data["receipts"]:
-            if isinstance(r, dict):
-                r.setdefault("lignes", [])
-        db.replace_table("receipts", data["receipts"])
+    # Fusionne les tickets existants avec ceux du Cloud (sans écraser les tickets locaux absents du Cloud)
+    local_receipts = {r["id"]: r for r in db.list_docs("receipts") if r.get("id") and r["id"] not in deleted_ids}
+    for r in (data.get("receipts") or []):
+        if isinstance(r, dict) and r.get("id") and r["id"] not in deleted_ids:
+            r.setdefault("lignes", [])
+            local_receipts[r["id"]] = r
+    db.replace_table("receipts", list(local_receipts.values()))
     if isinstance(data.get("enseignes"), list) and len(data["enseignes"]) > 0:
         for s in data["enseignes"]:
             if isinstance(s, dict):
@@ -617,9 +627,10 @@ def sync_import(data: dict):
                         if isinstance(e, dict):
                             e.setdefault("min", None)
                             e.setdefault("max", None)
-                            if not isinstance(e.get("obs"), list):
-                                e["obs"] = []
+                            e["obs"] = [o for o in (e.get("obs") or []) if isinstance(o, dict) and o.get("receiptId") not in deleted_ids]
         db.replace_table("products", data["products"])
+    # Reconstruit systématiquement les prix relevés (obs) à partir de tous les tickets enregistrés
+    merceries.ensure_receipt_observations(db.list_docs("products"), db.list_docs("receipts"), db.list_docs("enseignes"))
     if isinstance(data.get("shoppingList"), list):
         db.kv_set("shopping_list", data["shoppingList"])
     if isinstance(data.get("categories"), list) and data["categories"]:
