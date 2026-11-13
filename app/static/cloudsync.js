@@ -54,6 +54,17 @@ function syncHash(payload) {
   return JSON.stringify(clean);
 }
 
+function syncUnpack(raw) {
+  if (!raw) return null;
+  if (typeof raw._json === "string") {
+    try {
+      const parsed = JSON.parse(raw._json);
+      return { ...parsed, _profile: raw._profile, _updatedAt: raw._updatedAt };
+    } catch (_) {}
+  }
+  return raw;
+}
+
 async function syncPushNow(silent = false) {
   const sy = S.sync, key = syncSafeKey(sy.profile);
   if (!key || key.length < 3) {
@@ -69,7 +80,7 @@ async function syncPushNow(silent = false) {
   try {
     let payload = await api("/api/sync/export");
     const snap = await db.ref(`budgets/${key}`).once("value");
-    const existing = snap.val();
+    const existing = syncUnpack(snap.val());
     const isEmptyLocal = !(payload.patterns?.length) && !(payload.profiles?.length) && !(payload.receipts?.length);
     if (silent && isEmptyLocal && existing && ((existing.patterns?.length) || (existing.profiles?.length) || (existing.receipts?.length))) {
       // Sécurité anti-écrasement : si le serveur vient de redémarrer à vide (ex: mise à jour Render), on récupère Firebase au lieu d'écraser
@@ -91,7 +102,7 @@ async function syncPushNow(silent = false) {
           },
         });
         payload = await api("/api/sync/export");
-        if (S.tab === "merceries" || S.m?.data) await M_load();
+        await M_load();
       }
       if (existing.files) {
         payload.files = { ...existing.files, ...(payload.files || {}) };
@@ -102,7 +113,7 @@ async function syncPushNow(silent = false) {
     sy._lastTimestamp = ts;
     sy._lastHash = syncHash(cleanPayload);
     await db.ref(`budgets/${key}`).set({
-      ...cleanPayload,
+      _json: JSON.stringify(cleanPayload),
       _profile: sy.profile,
       _updatedAt: firebase.database.ServerValue.TIMESTAMP,
     });
@@ -120,12 +131,15 @@ async function syncPushNow(silent = false) {
   }
 }
 
-async function syncApplyIncoming(cloudData, silent = false) {
+async function syncApplyIncoming(rawCloudData, silent = false) {
   const sy = S.sync;
+  const cloudData = syncUnpack(rawCloudData);
+  if (!cloudData) return;
   const copy = { ...cloudData };
   const ts = copy._updatedAt || Date.now();
   delete copy._profile;
   delete copy._updatedAt;
+  delete copy._json;
   const h = syncHash(copy);
   if (h && h === sy._lastHash && silent) return;
   sy._updatingFromCloud = true;
@@ -134,7 +148,7 @@ async function syncApplyIncoming(cloudData, silent = false) {
     sy._lastHash = h;
     sy._lastTimestamp = ts;
     await loadAll();
-    if (S.tab === "merceries" || S.m?.data) await M_load();
+    await M_load();
     sy.lastSync = new Date().toLocaleTimeString("fr-FR");
     localStorage.setItem("couture_last_sync", sy.lastSync);
     sy.status = "ok";
@@ -166,7 +180,7 @@ async function syncPullNow(silent = false) {
   if (!silent) { sy.busy = true; sy.msg = ""; render(); }
   try {
     const snap = await db.ref(`budgets/${key}`).once("value");
-    const cloudData = snap.val();
+    const cloudData = syncUnpack(snap.val());
     if (!cloudData) {
       sy._initialized = true;
       if (!silent) { sy.status = "err"; sy.msg = "❌ Aucune donnée trouvée pour ce pseudo. Cliquez d'abord sur « Envoyer maintenant » depuis votre premier appareil."; }

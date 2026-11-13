@@ -12,7 +12,7 @@ async function M_load() {
   S.m.data = data; S.m.list = list;
   await M_compare();
 }
-function M_open() { if (!S.m.data) M_load().then(render).catch((e) => toast(e.message, true)); }
+function M_open() { M_load().then(render).catch((e) => toast(e.message, true)); }
 async function M_compare() {
   S.m.cmp = S.m.list.length ? await api("/api/merceries/compare", { json: { items: S.m.list, deplacement: parseFloat(S.m.dep) || 0 } }) : null;
 }

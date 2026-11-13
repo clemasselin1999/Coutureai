@@ -1,5 +1,5 @@
 // Service worker : coque de l'app en cache (démarrage rapide, hors-ligne pour l'interface).
-const CACHE = "coutureia-v16";
+const CACHE = "coutureia-v17";
 const SHELL = ["/", "/static/style.css", "/static/app.js", "/static/merceries.js", "/static/grading.js", "/static/cloudsync.js", "/static/manifest.webmanifest", "/static/icons/icon-192.png", "/static/icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {
